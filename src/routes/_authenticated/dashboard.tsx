@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { currentUserQuery, useCurrentUser } from "@/lib/current-user";
 import { clientsQuery, displayName, statusCountsQuery } from "@/lib/crm";
 import { STATUS_OPTIONS } from "@/lib/status";
-import { cn } from "@/lib/utils";
 
 const recentFilters = { search: "", status: "all" } as const;
 
@@ -138,7 +137,6 @@ function Dashboard() {
       </section>
 
       <ClientFormDialog open={adding} onOpenChange={setAdding} />
-      <span className={cn("hidden")} />
     </AppShell>
   );
 }
