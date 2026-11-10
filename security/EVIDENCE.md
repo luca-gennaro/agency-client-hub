@@ -294,8 +294,10 @@ Verified on production with read-only queries:
 | Trigger `profiles_prevent_company_change` | present |
 | Column `invites.expires_at` | present |
 | Bucket `client-documents` | private, with the new `allowed_mime_types` |
+| `pg_get_functiondef('public.has_role')` (F8) | new version: answers only when `_user_id = auth.uid()` or the user's profile has `company_id = current_company_id()` |
+| `pg_policies` on `storage.objects`, INSERT policy "Team uploads company documents" (F5) | requires `foldername(objects.name)[2]` to be a client with `company_id = current_company_id()` |
 
-The migration ran as a single transaction, so its other statements (`has_role`, `lookup_invite`, `handle_new_user`, the storage upload policy) were applied together with the ones checked above. The behavioural results in this document come from the local stack.
+The behavioural results in this document (requests and responses) come from the local stack.
 
 Notes:
 - The revoke uses `on all tables in schema public`, so it only covers the tables that existed when it ran. Tables added later (e.g. by Lovable) will again receive Supabase's default privileges and need their own grants.
