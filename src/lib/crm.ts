@@ -71,9 +71,10 @@ export const statusCountsQuery = queryOptions({
       ),
     );
     const counts = { lead: 0, active: 0, lost: 0, total: 0 } as StatusCounts;
-    results.forEach((r, i) => {
-      if (r.error) throw r.error;
-      counts[statuses[i]] = r.count ?? 0;
+    statuses.forEach((status, i) => {
+      const r = results[i];
+      if (r?.error) throw r.error;
+      counts[status] = r?.count ?? 0;
     });
     counts.total = counts.lead + counts.active + counts.lost;
     return counts;

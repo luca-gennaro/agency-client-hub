@@ -9,7 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type AuthSearch = { mode?: "signin" | "signup"; invite?: string; redirect?: string };
+type AuthSearch = {
+  mode?: "signin" | "signup" | undefined;
+  invite?: string | undefined;
+  redirect?: string | undefined;
+};
 
 function safeRedirect(value: string | undefined) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
@@ -19,9 +23,10 @@ function safeRedirect(value: string | undefined) {
 export const Route = createFileRoute("/auth")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): AuthSearch => ({
-    mode: search.mode === "signup" ? "signup" : search.mode === "signin" ? "signin" : undefined,
-    invite: typeof search.invite === "string" ? search.invite : undefined,
-    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+    mode:
+      search["mode"] === "signup" ? "signup" : search["mode"] === "signin" ? "signin" : undefined,
+    invite: typeof search["invite"] === "string" ? search["invite"] : undefined,
+    redirect: typeof search["redirect"] === "string" ? search["redirect"] : undefined,
   }),
   beforeLoad: async ({ search }) => {
     const { data } = await supabase.auth.getSession();

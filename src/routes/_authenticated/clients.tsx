@@ -14,14 +14,14 @@ import { clientsQuery, displayName, statusCountsQuery } from "@/lib/crm";
 import { STATUS_OPTIONS, type ClientStatus } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
-type ClientsSearch = { q?: string; status?: ClientStatus };
+type ClientsSearch = { q?: string | undefined; status?: ClientStatus | undefined };
 
 export const Route = createFileRoute("/_authenticated/clients")({
   validateSearch: (search: Record<string, unknown>): ClientsSearch => ({
-    q: typeof search.q === "string" && search.q ? search.q : undefined,
+    q: typeof search["q"] === "string" && search["q"] ? search["q"] : undefined,
     status:
-      search.status === "lead" || search.status === "active" || search.status === "lost"
-        ? search.status
+      search["status"] === "lead" || search["status"] === "active" || search["status"] === "lost"
+        ? search["status"]
         : undefined,
   }),
   head: () => ({
@@ -32,13 +32,16 @@ export const Route = createFileRoute("/_authenticated/clients")({
       { property: "og:description", content: "Search and filter every client in your agency." },
     ],
   }),
-  loaderDeps: ({ search }) => ({ q: search.q ?? "", status: search.status ?? "all" }),
+  loaderDeps: ({ search }) => ({
+    q: search.q ?? "",
+    status: (search.status ?? "all") as ClientStatus | "all",
+  }),
   loader: ({ context, deps }) =>
     Promise.all([
       context.queryClient.ensureQueryData(currentUserQuery),
       context.queryClient.ensureQueryData(statusCountsQuery),
       context.queryClient.ensureQueryData(
-        clientsQuery({ search: deps.q, status: deps.status as ClientStatus | "all" }),
+        clientsQuery({ search: deps.q, status: deps.status }),
       ),
     ]),
   component: ClientsPage,
@@ -47,7 +50,7 @@ export const Route = createFileRoute("/_authenticated/clients")({
 function ClientsPage() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/clients" });
-  const status = search.status ?? "all";
+  const status: ClientStatus | "all" = search.status ?? "all";
   const [term, setTerm] = useState(search.q ?? "");
   const [adding, setAdding] = useState(false);
 
@@ -64,7 +67,7 @@ function ClientsPage() {
   const clients = useQuery({ ...clientsQuery(filters), placeholderData: keepPreviousData });
   const counts = useQuery(statusCountsQuery);
 
-  const tabs: { value: ClientStatus | "all"; label: string; count?: number }[] = [
+  const tabs: { value: ClientStatus | "all"; label: string; count?: number | undefined }[] = [
     { value: "all", label: "All", count: counts.data?.total },
     ...STATUS_OPTIONS.map((s) => ({ ...s, count: counts.data?.[s.value] })),
   ];

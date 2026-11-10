@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export function BrandMark({ className }: { className?: string }) {
+export function BrandMark({ className }: { className?: string | undefined }) {
   return (
     <span
       aria-hidden="true"
@@ -14,7 +14,7 @@ export function BrandMark({ className }: { className?: string }) {
   );
 }
 
-export function Brand({ className, inverted }: { className?: string; inverted?: boolean }) {
+export function Brand({ className, inverted }: { className?: string | undefined; inverted?: boolean | undefined }) {
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       <BrandMark className={inverted ? "bg-sidebar-primary text-sidebar-primary-foreground" : undefined} />
