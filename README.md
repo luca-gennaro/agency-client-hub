@@ -4,7 +4,7 @@ Agency Client Hub is a multi-tenant CRM for small agencies: each agency has its 
 
 ## Before and after
 
-| Finding                                                  | Severity      | Before                                                  | After (verified locally)             |
+| Finding                                                  | Severity      | Before                                                  | After (verified on production)       |
 | -------------------------------------------------------- | ------------- | ------------------------------------------------------- | ------------------------------------ |
 | F1 — A user could move their account into another agency | High          | Latent: not exploitable today, blocked by a side effect | Fixed: explicit permission + trigger |
 | F2 — Team members could change fields they should not    | Medium        | Confirmed                                               | Fixed                                |
@@ -13,7 +13,7 @@ Agency Client Hub is a multi-tenant CRM for small agencies: each agency has its 
 | F7 — Invite codes could be chosen and never expired      | Low           | Confirmed                                               | Fixed                                |
 | F8 — Anyone logged in could check other users' roles     | Low           | Confirmed                                               | Fixed                                |
 
-30 API tests and 5 database-level checks pass after the fix. The migration has not been deployed to production yet. Twelve lower-priority observations remain open (F4, F6, F9–F18); see the report.
+30 API tests and 5 database-level checks pass after the fix, and the migration is applied to production, where I verified it with read-only queries. Twelve lower-priority observations remain open (F4, F6, F9–F18); see the report.
 
 ## Reproduce it
 

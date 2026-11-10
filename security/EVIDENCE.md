@@ -2,8 +2,8 @@
 
 Reproduction of the findings in `AUDIT_NOTES.md` on a local Supabase stack, and of their fixes.
 
-- **Before** = `drizzle/migrations/0000` + `0001` (the schema in production today).
-- **After** = `0000` + `0001` + `0002_security_hardening.sql` (local only, not deployed).
+- **Before** = `drizzle/migrations/0000` + `0001` (the schema in production before the fix).
+- **After** = `0000` + `0001` + `0002_security_hardening.sql`, now applied to production (see [Production verification](#production-verification)).
 
 Run: `npm run security:test` from the repo root. The script resets the local database from all migrations in `drizzle/migrations`, runs the API suite (`tests/findings.test.ts`, `tests/happy-path.test.ts`) and then the SQL checks (`scripts/sql-checks.sql`).
 Last run (After): 2026-11-10, **30/30 tests passing, 5/5 SQL checks OK**.
@@ -25,14 +25,14 @@ Local versions may differ from production. Behaviour that depends on them is mar
 
 ## Status summary
 
-| #   | Finding                                                | Severity      | Before                                                                                                                                                                 | After (0002, local)                                                                |
+| #   | Finding                                                | Severity      | Before                                                                                                                                                                 | After (0002)                                                                       |
 | --- | ------------------------------------------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| F1  | A user can move their own profile into another company | High          | **Latent** — blocked by a side effect of RLS row checks, not by an intentional rule; becomes exploitable with a common additional SELECT policy (demonstrated locally) | Fixed: no UPDATE privilege on `company_id`, plus a trigger that rejects any change |
-| F2  | Columns outside the column grants are writable         | Medium        | Confirmed                                                                                                                                                              | Fixed: table-level writes revoked, only the app's columns granted                  |
-| F3  | Bucket not defined in the migrations                   | Informational | Verified on production: private, 20 MB                                                                                                                                 | Bucket now defined in 0002                                                         |
-| F5  | Storage upload not bound to a client, no type filter   | Medium        | Confirmed                                                                                                                                                              | Fixed, with one accepted residual (`application/octet-stream`)                     |
-| F7  | Admins choose the invite code; no expiry               | Low           | Confirmed                                                                                                                                                              | Fixed: code only from the database, 7-day expiry                                   |
-| F8  | `has_role` accepts any user id                         | Low           | Confirmed                                                                                                                                                              | Fixed: answers only for the caller and teammates                                   |
+| F1  | A user can move their own profile into another company | High          | **Latent** — blocked by a side effect of RLS row checks, not by an intentional rule; becomes exploitable with a common additional SELECT policy (demonstrated locally) | Fixed (verified on production): no UPDATE on `company_id`, plus a trigger          |
+| F2  | Columns outside the column grants are writable         | Medium        | Confirmed                                                                                                                                                              | Fixed (verified on production): only the app's columns writable                    |
+| F3  | Bucket not defined in the migrations                   | Informational | Verified on production: private, 20 MB                                                                                                                                 | Bucket defined in 0002; type filter verified on production                         |
+| F5  | Storage upload not bound to a client, no type filter   | Medium        | Confirmed                                                                                                                                                              | Fixed (verified on production), one accepted residual (`application/octet-stream`) |
+| F7  | Admins choose the invite code; no expiry               | Low           | Confirmed                                                                                                                                                              | Fixed (verified on production): code only from the database, 7-day expiry          |
+| F8  | `has_role` accepts any user id                         | Low           | Confirmed                                                                                                                                                              | Fixed (verified on production): answers only for the caller and teammates          |
 
 ## Actors and setup (both runs)
 
@@ -281,7 +281,24 @@ OK F7 expiry (sign-up trigger): rejected — Invalid, expired or already used in
 
 F4, F6, F9 (document metadata), F10, F12–F18 from `AUDIT_NOTES.md`.
 
-## Before deploying 0002
+## Production verification
 
-- This project is connected to Lovable and `AGENTS.md` asks for schema changes to go through Lovable. The migration file is local and `drizzle/migrations/meta/_journal.json` was not updated.
-- The revoke uses `on all tables in schema public`, so it only covers the tables that exist when it runs. Tables added later (e.g. by Lovable) will again receive Supabase's default privileges and need their own grants.
+Migration 0002 is applied to production. I applied it through the Lovable SQL editor, in one transaction, because the credits of Lovable's free plan were exhausted; Lovable's own migration history does not include it.
+
+Verified on production with read-only queries:
+
+| Check | Result |
+|---|---|
+| Table-level UPDATE for `authenticated` on public tables | none |
+| Updatable columns of `profiles` for `authenticated` | `full_name` only |
+| Trigger `profiles_prevent_company_change` | present |
+| Column `invites.expires_at` | present |
+| Bucket `client-documents` | private, with the new `allowed_mime_types` |
+| `pg_get_functiondef('public.has_role')` (F8) | new version: answers only when `_user_id = auth.uid()` or the user's profile has `company_id = current_company_id()` |
+| `pg_policies` on `storage.objects`, INSERT policy "Team uploads company documents" (F5) | requires `foldername(objects.name)[2]` to be a client with `company_id = current_company_id()` |
+
+The behavioural results in this document (requests and responses) come from the local stack.
+
+Notes:
+- The revoke uses `on all tables in schema public`, so it only covers the tables that existed when it ran. Tables added later (e.g. by Lovable) will again receive Supabase's default privileges and need their own grants.
+- `drizzle/migrations/meta/_journal.json` was not updated.

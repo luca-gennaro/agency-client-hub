@@ -33,14 +33,14 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 
 | #   | Title                                                                                      | Severity                  | Status                                                                                                                                                                 |
 | --- | ------------------------------------------------------------------------------------------ | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F1  | A user can move their own profile into another company (as admin)                          | **High**                  | **Latent** — blocked by a side effect of RLS row checks, not by an intentional rule; becomes exploitable with a common additional SELECT policy (demonstrated locally) |
-| F2  | Column-level grants restrict nothing: table-level privileges from Supabase defaults remain | Medium                    | Confirmed (local test + production config)                                                                                                                             |
-| F3  | Bucket `client-documents` not defined in the migrations                                    | Informational             | Verified on production: private, 20 MB limit                                                                                                                           |
+| F1  | A user can move their own profile into another company (as admin)                          | **High**                  | **Latent** — blocked by a side effect of RLS row checks, not by an intentional rule; becomes exploitable with a common additional SELECT policy (demonstrated locally) → Fixed by 0002, verified on production |
+| F2  | Column-level grants restrict nothing: table-level privileges from Supabase defaults remain | Medium                    | Confirmed (local test + production config) → Fixed by 0002, verified on production |
+| F3  | Bucket `client-documents` not defined in the migrations                                    | Informational             | Verified on production: private, 20 MB limit → defined in 0002, type filter verified on production |
 | F4  | No way to remove a member or revoke a role                                                 | Medium                    | Code review                                                                                                                                                            |
-| F5  | Upload: no server-side type filter, path not bound to a client                             | Medium                    | Confirmed (local test)                                                                                                                                                 |
+| F5  | Upload: no server-side type filter, path not bound to a client                             | Medium                    | Confirmed (local test) → Fixed by 0002, verified on production |
 | F6  | `user_roles` has no `company_id`: roles are global                                         | Medium (defence in depth) | Code review                                                                                                                                                            |
-| F7  | Admins choose the invite code; invites never expire; anonymous `lookup_invite`             | Low                       | Confirmed (local test)                                                                                                                                                 |
-| F8  | `has_role` accepts an arbitrary `_user_id`                                                 | Low                       | Confirmed (local test)                                                                                                                                                 |
+| F7  | Admins choose the invite code; invites never expire; anonymous `lookup_invite`             | Low                       | Confirmed (local test) → Fixed by 0002, verified on production |
+| F8  | `has_role` accepts an arbitrary `_user_id`                                                 | Low                       | Confirmed (local test) → Fixed by 0002, verified on production |
 | F9  | Attribution fields (`created_by`, document metadata) chosen by the client                  | Low                       | `created_by` confirmed (local test, see F2)                                                                                                                            |
 | F10 | Orphaned storage files when a client is deleted through the API                            | Low                       | Code review                                                                                                                                                            |
 | F11 | Storage delete policy relies on the `owner` column                                         | Low                       | to verify                                                                                                                                                              |
@@ -59,7 +59,7 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 ### F1 — A user can move their own profile into another company
 
 - **Severity:** High
-- **Status:** **Latent** — blocked by a side effect of RLS row checks, not by an intentional rule; becomes exploitable with a common additional SELECT policy (demonstrated locally).
+- **Status:** **Latent** — blocked by a side effect of RLS row checks, not by an intentional rule; becomes exploitable with a common additional SELECT policy (demonstrated locally). **Fixed by 0002, verified on production:** no table-level UPDATE for `authenticated`, `profiles` updatable only on `full_name`, trigger `profiles_prevent_company_change` present.
 - **File:** `drizzle/migrations/0000_crm_multi_tenant_schema.sql:96` (grant), `:134-137` (policies)
 - **Why it is a problem:** the `"Update own profile"` policy is `using (id = auth.uid()) with check (id = auth.uid())`, so its WITH CHECK places no constraint on `company_id`. The grant `update (full_name)` was meant to protect the other columns, but `authenticated` also holds table-level UPDATE (F2). Confirmed on production: `authenticated` has UPDATE on `profiles.company_id`, and the policy is exactly as above. If the update went through, `current_company_id()` would return the victim's company and the user would read and change its clients, documents and storage. Because roles are global (F6), and anyone who signs up without an invite is admin, the user would arrive **as admin**: billing notes, client deletion, invite creation. The victim company's UUID is not a secret: it appears in every storage path and therefore in every shared signed URL.
 - **Why it is blocked today:** in Postgres, when an UPDATE reads the target row (any filter on the table's columns), the new row must also pass the table's SELECT policies. On `profiles` the only one is `"View teammates"` (`company_id = current_company_id()`). Inside the statement `current_company_id()` still returns the old company, so the moved row fails it. Without a filter, PostgREST refuses the UPDATE through pg-safeupdate. Production was checked: `profiles` has only these two policies (`"Update own profile"`, `"View teammates"`) and no other SELECT policy, so production behaves like the local stack.
@@ -73,7 +73,7 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 ### F2 — Column-level grants restrict nothing
 
 - **Severity:** Medium
-- **Status:** Confirmed — local test, and on production `authenticated` has UPDATE on `profiles.company_id` despite the column grant.
+- **Status:** Confirmed — local test, and on production `authenticated` had UPDATE on `profiles.company_id` despite the column grant. **Fixed by 0002, verified on production:** no table-level UPDATE for `authenticated` on public tables; `profiles` updatable only on `full_name`.
 - **File:** `drizzle/migrations/0000_crm_multi_tenant_schema.sql:91-105`
 - **Why it is a problem:** Supabase's default privileges grant ALL on new tables in `public` to `anon`, `authenticated` and `service_role`. The migrations add column grants (`grant select, update (name)`, …) but never `revoke`, and a column grant does not remove an existing table grant. Locally, `information_schema.role_table_grants` shows every privilege (including UPDATE, INSERT, DELETE, TRUNCATE) on `profiles` for both `anon` and `authenticated`. RLS policies are therefore the only line of defence. Observed effects:
   - a member rewrites `clients.created_by`, even to a user of another company (the foreign key accepts any profile);
@@ -85,7 +85,7 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 ### F3 — Bucket `client-documents` not defined in the migrations
 
 - **Severity:** Informational
-- **Status:** Verified on production: `public = false`, `file_size_limit = 20971520` (20 MB), `allowed_mime_types = NULL`.
+- **Status:** Verified on production: `public = false`, `file_size_limit = 20971520` (20 MB), `allowed_mime_types = NULL`. **Now defined in 0002**; on production the bucket is still private and has the new `allowed_mime_types`.
 - **File:** `drizzle/migrations/0000_crm_multi_tenant_schema.sql:270-283` (policies only); `src/lib/crm.ts:138`
 - **Why it matters:** the bucket is configured outside version control, so a new environment or a reset could create it with different settings (public, no limit) without anyone noticing. The production configuration is safe on visibility and size; the missing type filter is F5.
 - **How to prove it with a test:** `select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'client-documents';` on each environment. `security/supabase/seed.sql` reproduces the production values locally.
@@ -100,7 +100,7 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 ### F5 — Upload: no server-side type filter, path not bound to a client
 
 - **Severity:** Medium
-- **Status:** Confirmed (local test with the production bucket configuration).
+- **Status:** Confirmed (local test with the production bucket configuration). **Fixed by 0002, verified on production:** bucket has the new `allowed_mime_types`; the INSERT policy requires `foldername(objects.name)[2]` to be a client of the caller's company. Accepted residual: `application/octet-stream` stays allowed.
 - **File:** `drizzle/migrations/0000_crm_multi_tenant_schema.sql:274-276`; `src/routes/_authenticated/clients_.$clientId.tsx:45,254,333`
 - **Why it is a problem:** `accept=".pdf,..."` is client-side only and the bucket has `allowed_mime_types = NULL`. The INSERT policy only checks that the first folder is the user's company. A member uploaded `poc.html` (`text/html`, containing a script) into `<company>/not-a-client/` through the API, listed it and downloaded it back. No `client_documents` row points to it, so it is invisible in the app but readable by the whole company. The 20 MB limit is enforced by the bucket (F3). Whether a signed URL renders the file as HTML in the browser is **to verify**.
 - **How to prove it with a test:** `security/tests/findings.test.ts`, block F5.
@@ -115,7 +115,7 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 ### F7 — Admins choose the invite code; invites never expire
 
 - **Severity:** Low
-- **Status:** Confirmed (local test).
+- **Status:** Confirmed (local test). **Fixed by 0002, verified on production:** `invites.expires_at` present; codes come only from the column default (no INSERT grant on `code`).
 - **File:** `drizzle/migrations/0000_crm_multi_tenant_schema.sql:49-57,100,221-228`
 - **Why it is a problem:** the INSERT grant on `invites` includes `code`, so an admin can create an invite with code `A`. `lookup_invite` is callable by `anon` and returned `"Company B"` for `'a'`: anyone guessing a trivial code learns the company name and can join it as a member. The default codes (10 hex characters, ~40 bits) are not practically guessable, but there is no specific rate limiting. Unused codes never expire, so a forwarded link stays valid forever.
 - **How to prove it with a test:** `security/tests/findings.test.ts`, block F7. For expiry: create an invite, backdate `created_at` by 30 days, sign up with it → it still works.
@@ -123,7 +123,7 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 ### F8 — `has_role` accepts an arbitrary `_user_id`
 
 - **Severity:** Low
-- **Status:** Confirmed (local test).
+- **Status:** Confirmed (local test). **Fixed by 0002, verified on production:** `pg_get_functiondef('public.has_role')` answers only for `auth.uid()` or users with `company_id = current_company_id()`.
 - **File:** `drizzle/migrations/0001_restrict_helper_functions.sql:3-4`; `0000:43-46`
 - **Why it is a problem:** it is SECURITY DEFINER and any `authenticated` user can call it through `/rest/v1/rpc/has_role`. User A (company A) asked about user B (company B) and got `true`. Small information leak about other tenants.
 - **How to prove it with a test:** `security/tests/findings.test.ts`, block F8.
@@ -131,7 +131,7 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 ### F9 — Attribution chosen by the client
 
 - **Severity:** Low
-- **Status:** `clients.created_by` confirmed (local test under F2); document metadata from code review.
+- **Status:** `clients.created_by` confirmed (local test under F2), and no longer writable after 0002; document metadata from code review, still open.
 - **File:** `drizzle/migrations/0000_crm_multi_tenant_schema.sql:70,169-185` (`clients.created_by`), `:193-200` (`client_documents`)
 - **Why it is a problem:** the INSERT policy on `clients` does not check `created_by = auth.uid()`, and UPDATE allows changing it (F2). On `client_documents`, `file_name`, `size_bytes` and `mime_type` are whatever the client sends, and `storage_path` is checked only on its first segment (not that the file exists or sits under the right `client_id`). Everything stays inside the tenant, but the audit trail and metadata are not reliable.
 - **How to prove it with a test:** as a member, `insert clients {name:'x', created_by:<another member>}` → succeeds; `insert client_documents {client_id:C1, storage_path:'<company>/<C2>/someone-elses-file', size_bytes:1}` → succeeds.
@@ -202,8 +202,12 @@ Files reviewed: `drizzle/migrations/0000_crm_multi_tenant_schema.sql`, `drizzle/
 
 ---
 
-## 4. Suggested next steps
+## 4. Status and next steps
 
-1. Fix F1 and F2 together through Lovable (revoke the table-level UPDATE on `profiles`, keep the column grant, make the policy or a trigger forbid `company_id` changes), then flip the F1/F2 tests in `security/` to assert the secure result.
-2. Add `allowed_mime_types` to the bucket and a client check on the storage INSERT path (F5).
-3. Put the bucket definition under version control (F3) and add expiry plus a fixed format to invite codes (F7).
+Migration `drizzle/migrations/0002_security_hardening.sql` fixes F1, F2, F5, F7 and F8, defines the bucket (F3) and makes `clients.created_by` read-only (part of F9). It is applied to production through the Lovable SQL editor, in one transaction, and verified there with read-only queries (details in `security/EVIDENCE.md`, "Production verification"). Lovable's own migration history does not include it.
+
+Still open:
+1. F4 — a way for admins to remove members and change roles.
+2. F6 — tie roles to a company (or keep the `company_id` trigger as the guarantee).
+3. F9 (document metadata), F10, F11, F12, F13 — low-severity items.
+4. F14–F18 — informational items and the Auth configuration check.
