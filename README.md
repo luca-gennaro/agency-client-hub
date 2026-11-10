@@ -1,24 +1,42 @@
-# Agency Client Hub
+# Agency Client Hub — a security case study
 
-Build a simple CRM web app for small agencies. Several companies can sign up and use it. Each company has its own team members, clients and documents. Features: (1) Sign up and log in with email and password. When someone signs up they create their company, or join an existing company with an invite code. (2) Two roles: admin and member. Admins can invite members, delete clients and see a "Company settings" page with billing notes. Members can add and edit clients. (3) Clients list with name, email, phone, status (lead, active, lost), notes and the team member who owns it. Search and filter by status. (4) Each client can have uploaded documents (PDF contracts, invoices) that the team can download. (5) A dashboard with the number of clients by status. (6) An "Export all clients" button that downloads a CSV. Keep the design clean and professional. Save all data in a database.
+Agency Client Hub is a multi-tenant CRM for small agencies: each agency has its own team, clients, documents and invite codes, all in one Supabase database. It was generated with Lovable, and on the surface its data isolation looked right: every table had access rules, and the app hid admin features from members. I reviewed the schema, checked the live configuration and built a local test suite acting as real users, and the picture turned out more nuanced. The wall between agencies held only because of a side effect in how Postgres checks updated rows. One ordinary extra rule would have let anyone who signs up take over another agency as its admin, which I demonstrated on a local copy. Along the way I confirmed several smaller issues: forgeable records, arbitrary file uploads, guessable invite codes and a role lookup that leaked across agencies. I fixed all of them in one migration and re-tested it together with every normal feature of the app; everything is reproducible with a single command.
 
-This project was built with [Lovable](https://lovable.dev).
+## Before and after
 
-## Build with Lovable
+| Finding                                                  | Severity      | Before                                                  | After (verified locally)             |
+| -------------------------------------------------------- | ------------- | ------------------------------------------------------- | ------------------------------------ |
+| F1 — A user could move their account into another agency | High          | Latent: not exploitable today, blocked by a side effect | Fixed: explicit permission + trigger |
+| F2 — Team members could change fields they should not    | Medium        | Confirmed                                               | Fixed                                |
+| F3 — Storage bucket not defined in the code              | Informational | Private, 20 MB (verified on production)                 | Defined in the migration             |
+| F5 — Uploads accepted any file type in any folder        | Medium        | Confirmed                                               | Fixed (one accepted trade-off)       |
+| F7 — Invite codes could be chosen and never expired      | Low           | Confirmed                                               | Fixed                                |
+| F8 — Anyone logged in could check other users' roles     | Low           | Confirmed                                               | Fixed                                |
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/65881114-0ca0-4a78-9a38-0246507d158c).
+30 API tests and 5 database-level checks pass after the fix. The migration has not been deployed to production yet. Twelve lower-priority observations remain open (F4, F6, F9–F18); see the report.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## Reproduce it
 
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Requirements: Docker, the [Supabase CLI](https://supabase.com/docs/guides/cli) and Node.js. From the repository root:
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
+npm run security:test
+```
+
+This builds a local Supabase stack from `drizzle/migrations`, runs the tests as real users with only the public key, then runs the database-level checks. More in [`security/README.md`](security/README.md).
+
+## Read more
+
+- [`REPORT.md`](REPORT.md): the security review, for founders first and developers second
+- [`security/EVIDENCE.md`](security/EVIDENCE.md): every request, expected result and observed result, before and after
+- [`drizzle/migrations/0002_security_hardening.sql`](drizzle/migrations/0002_security_hardening.sql): the fix
+- [`AUDIT_NOTES.md`](AUDIT_NOTES.md): full technical notes on all 18 findings
+
+## Running the app
+
+```sh
 npm i
 npm run dev
 ```
+
+Built with [Lovable](https://lovable.dev). I produced the review, tests and fix with an AI coding assistant (Claude Code). I checked production myself with read-only queries; the assistant had no access to production. — Luca Gennaro
