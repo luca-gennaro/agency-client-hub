@@ -1,0 +1,4 @@
+node_modules
+results/
+# Copied from drizzle/migrations by scripts/run.sh on every run; the source of truth stays there.
+supabase/migrations/
