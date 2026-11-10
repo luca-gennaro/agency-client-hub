@@ -16,9 +16,9 @@ Agency Client Hub lets several agencies share one application while keeping each
 
 **After the fixes:** the wall between agencies is now explicit and doubled. Users no longer have permission to change which agency they belong to, and a second safeguard rejects that change even for internal administrative tools. Every other issue confirmed in testing is closed. All of the application's normal features were re-tested and still work.
 
-**Status:** the fixes are written as one database migration and verified on a local copy of the system (30 automated tests and 5 database-level checks, all passing). **They are not yet deployed to production.** Twelve lower-priority observations remain open (F4, F6, F9–F18); none of them allows access to another agency's data.
+**Status:** the fixes are one database migration. It passes 30 automated tests and 5 database-level checks on a local copy of the system, and it is **applied to production**, where I verified it with read-only queries. Twelve lower-priority observations remain open (F4, F6, F9–F18); none of them allows access to another agency's data.
 
-|                                                          | Before                                  | After (verified locally)                                            |
+|                                                          | Before                                  | After (verified on production)                                      |
 | -------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------- |
 | Can one agency reach another agency's data?              | Not today, but one ordinary change away | No; blocked by an explicit permission rule and a separate safeguard |
 | Can a team member tamper with records or their identity? | Yes                                     | No                                                                  |
@@ -49,15 +49,15 @@ Agency Client Hub lets several agencies share one application while keeping each
 
 | ID             | Finding                                             | Severity       | Status before                                               | Status after                                     |
 | -------------- | --------------------------------------------------- | -------------- | ----------------------------------------------------------- | ------------------------------------------------ |
-| F1             | A user could move their account into another agency | **High**       | **Latent**: not exploitable today, blocked by a side effect | Fixed (verified locally)                         |
-| F2             | Team members could change fields they should not    | Medium         | Confirmed                                                   | Fixed (verified locally)                         |
-| F3             | Storage bucket not defined in the code              | Informational  | Verified on production: private, 20 MB limit                | Defined in the migration                         |
-| F5             | Uploads accepted any file type in any folder        | Medium         | Confirmed                                                   | Fixed, one accepted trade-off (verified locally) |
-| F7             | Invite codes could be chosen and never expired      | Low            | Confirmed                                                   | Fixed (verified locally)                         |
-| F8             | Anyone logged in could check other users' roles     | Low            | Confirmed                                                   | Fixed (verified locally)                         |
+| F1             | A user could move their account into another agency | **High**       | **Latent**: not exploitable today, blocked by a side effect | Fixed (verified on production)                   |
+| F2             | Team members could change fields they should not    | Medium         | Confirmed                                                   | Fixed (verified on production)                   |
+| F3             | Storage bucket not defined in the code              | Informational  | Verified on production: private, 20 MB limit                | Defined in the migration, filter in production   |
+| F5             | Uploads accepted any file type in any folder        | Medium         | Confirmed                                                   | Fixed, one trade-off (verified on production)    |
+| F7             | Invite codes could be chosen and never expired      | Low            | Confirmed                                                   | Fixed (verified on production)                   |
+| F8             | Anyone logged in could check other users' roles     | Low            | Confirmed                                                   | Fixed (verified on production)                   |
 | F4, F6, F9–F18 | Other observations (see §5)                         | Medium to Info | Open                                                        | Open                                             |
 
-"Verified locally" means: the fix is in [`0002_security_hardening.sql`](drizzle/migrations/0002_security_hardening.sql) and passes the test suite on a local copy of the system. It is not yet applied to production.
+"Verified on production" means: the fix in [`0002_security_hardening.sql`](drizzle/migrations/0002_security_hardening.sql) passes the test suite on a local copy of the system and is applied to production. I verified the result on production with read-only queries: no table-level UPDATE for `authenticated` on public tables; `profiles` updatable only on `full_name`; trigger `profiles_prevent_company_change` present; `invites.expires_at` present; bucket private with the new allowed file types. The migration ran as a single transaction, so its other statements (the new `has_role`, `lookup_invite` and sign-up function, and the storage upload rule) were applied together with the ones I checked. The behavioural tests (30 API tests, 5 database checks) run on the local copy.
 
 ---
 
@@ -65,7 +65,7 @@ Agency Client Hub lets several agencies share one application while keeping each
 
 ### F1 — A user could move their account into another agency
 
-**Severity:** High · **Before:** Latent, not exploitable today · **After:** Fixed (verified locally)
+**Severity:** High · **Before:** Latent, not exploitable today · **After:** Fixed (verified on production)
 
 **Description.** Every access rule in the database decides "which agency are you in?" by reading a single field: `profiles.company_id`. Users were allowed to edit their own profile, and the rule for that edit only checked "is this your profile?", not "are you keeping the same agency?". The table permissions, meant to limit edits to the user's name, did not restrict anything (see F2). Both facts were confirmed on the production database.
 
@@ -86,7 +86,7 @@ Agency Client Hub lets several agencies share one application while keeping each
 
 ### F2 — Team members could change fields they should not
 
-**Severity:** Medium · **Before:** Confirmed · **After:** Fixed (verified locally)
+**Severity:** Medium · **Before:** Confirmed · **After:** Fixed (verified on production)
 
 **Description.** The migrations tried to limit what users can edit to specific columns. On Supabase, new tables automatically receive full permissions for logged-in users, and the migrations never removed them, so the column limits had no effect. Only the access rules stood in the way, and those check _which rows_ a user may touch, not _which fields_.
 
@@ -110,7 +110,7 @@ Agency Client Hub lets several agencies share one application while keeping each
 
 ### F5 — Uploads accepted any file type in any folder
 
-**Severity:** Medium · **Before:** Confirmed · **After:** Fixed, with one accepted trade-off (verified locally)
+**Severity:** Medium · **Before:** Confirmed · **After:** Fixed, with one accepted trade-off (verified on production)
 
 **Description.** The upload button only offers documents and images, but that restriction lived in the browser. Through the API, a team member could store any file, including an HTML page containing a script, in any folder of their agency, even one that belongs to no client. Such files do not appear in the app but stay readable by the whole team.
 
@@ -124,7 +124,7 @@ Agency Client Hub lets several agencies share one application while keeping each
 
 ### F7 — Invite codes could be chosen and never expired
 
-**Severity:** Low · **Before:** Confirmed · **After:** Fixed (verified locally)
+**Severity:** Low · **Before:** Confirmed · **After:** Fixed (verified on production)
 
 **Description.** An admin could create an invite with any code, even a single letter. A public, no-login function then confirmed the code and revealed the agency's name. Unused codes stayed valid forever.
 
@@ -138,7 +138,7 @@ Agency Client Hub lets several agencies share one application while keeping each
 
 ### F8 — Anyone logged in could check other users' roles
 
-**Severity:** Low · **Before:** Confirmed · **After:** Fixed (verified locally)
+**Severity:** Low · **Before:** Confirmed · **After:** Fixed (verified on production)
 
 **Description.** A helper function that answers "is this user an admin?" accepted any user ID from any caller.
 
@@ -180,8 +180,8 @@ Recorded in [`AUDIT_NOTES.md`](AUDIT_NOTES.md); not fixed by this migration. Non
 - **Generic binary uploads stay allowed.** Browsers label files they cannot identify as `application/octet-stream`, for example Word files on a computer without Office. Blocking that type would break real uploads, so it remains allowed. A file stored this way is served as a download and never displayed as a web page; the app's download links force this explicitly. To verify on production: how the storage service serves such files when the download option is missing.
 - **Expired invites still look open in the Team page.** The interface was deliberately left unchanged and does not read the new expiry date. An expired code fails with the same message as a used one. Invites that are unused when the migration runs will expire 7 days later.
 - **Permissions are fixed for today's tables only.** The revoke applies to tables that exist when the migration runs. Tables added later will again receive Supabase's default permissions and need their own column grants.
-- **Local versions may differ from production.** Tests run on Postgres 17.6, PostgREST 14.8 and pg_graphql 1.5.11. Production facts that matter (bucket settings, permissions and access rules on `profiles`) were checked on the live database; component versions were not.
-- **Deployment goes through Lovable.** The project's database is managed by Lovable, so the migration has to be applied through it and has not been applied yet. Until then, production is in the "before" state described above.
+- **Local versions may differ from production.** Tests run on Postgres 17.6, PostgREST 14.8 and pg_graphql 1.5.11. Production facts that matter (bucket settings, permissions and access rules on `profiles`, and the result of the migration) were checked on the live database; component versions were not.
+- **Applied outside Lovable's migration history.** I applied the migration to production through the Lovable SQL editor, in one transaction, because the credits of Lovable's free plan were exhausted. Lovable's own migration history does not include it; the record of the change is the file in `drizzle/migrations`. Anyone changing the schema through Lovable later should know it is there.
 
 ---
 
